@@ -5,19 +5,17 @@ import threading
 from dotenv import load_dotenv
 from telegram import Update, WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
 
-# Загружаем переменные окружения
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MINI_APP_URL = os.getenv("MINI_APP_URL")
 
-# Настройка логирования
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# --- Telegram Bot Handlers ---
+# --- Обработчики бота ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton(
@@ -42,26 +40,26 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
         logging.error(f"Ошибка обработки заказа: {e}")
         await update.message.reply_text("❌ Произошла ошибка при обработке заказа.")
 
-# --- Функция запуска бота (в отдельном потоке) ---
-def run_bot():
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
-    print("Бот запущен...")
-    application.run_polling()
-
-# --- Flask веб-сервер (для поддержки Web Service) ---
+# --- Flask сервер (для Health Check) ---
 app = Flask(__name__)
 
 @app.route('/')
 def health():
     return jsonify({"status": "ok"}), 200
 
-# Запускаем бота в фоновом потоке, чтобы не блокировать Flask
-if __name__ == "__main__":
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-
-    # Запускаем Flask-сервер (порт берём из переменной окружения Render)
+def run_flask():
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+
+# --- Запуск ---
+if __name__ == "__main__":
+    # Запускаем Flask в фоновом потоке
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+
+    # Запускаем бота в основном потоке (это исправляет ошибку с сигналами)
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_data))
+    print("Бот запущен...")
+    application.run_polling()
